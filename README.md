@@ -7,7 +7,7 @@ Install
 -------
 
 ```cli
-pip install git+https://github.com/blz-ea/pin-dl.git
+# pip3 install git+https://github.com/blz-ea/pin-dl.git
 ```
 
 Usage
