@@ -1,5 +1,4 @@
 import os
-import sys
 import json
 import shutil
 import traceback
@@ -17,23 +16,13 @@ Session = requests.Session
 
 class UserBoardException(Exception):
     pass
-    Accepts board resource (UserProfileBoardResource) and returns restructured dict for easy manipulation
 
-    Parameters
-    ---------
-    data_items: list
-       UserProfileBoardResource - list of user boards
 
 class Board:
     id: str  # Board id
     url: str  # Board url e.g. username/board_name
     owner: str  # username
     name: str  # board_name
-            "url": str,     # Board url e.g. username/board_name
-            "owner": str,   # username
-            "name": str     # board_name
-          },
-    ]
 
     def __init__(self, board_id: str = None, url: str = None, owner: str = None, name: str = None):
         self.id = board_id
@@ -81,12 +70,13 @@ def user_profile_board_resource(data_items: List[Any]) -> List[Board]:
     result = []
 
     for i in data_items:
-        result.append({
-            "id": i["id"],
-            "url": i["url"],
-            "owner": i["owner"]["username"],
-            "name": i["name"],
-        })
+        board = Board()
+        board.id = i["id"]
+        board.url = i["url"]
+        board.owner = i["owner"]["username"]
+        board.name = i["name"]
+
+        result.append(board)
 
     return result
 
@@ -97,29 +87,6 @@ def get_page_data(path: str) -> 'UserProfileResources':
 
     :param path: Pinterest path e.g. username or username/board_name
     :return:
-    path: str
-        Pinterest path e.g. username or username/board_name
-
-
-    Returns
-    -------
-    dict
-        {
-            "UserProfileBaseResource": {
-                {
-                "status": str "<success|failure>",
-                "status_code: number <200|404|...>,
-                "data": {<user_json_data>}|None,
-                "error": "Occurred error",
-              }
-            },
-            "UserProfileBoardResource": {
-                "status": str "<success|failure>",
-                "status_code: number <200|404|...>,
-                "data": [<board_json_data>]| [] | None,
-                "error": "Occurred error",
-            },
-        }
     """
     s = session()
     r = s.get("{}/{}/".format(PINTEREST_HOST, path))
@@ -127,19 +94,22 @@ def get_page_data(path: str) -> 'UserProfileResources':
     tag = root.xpath("//script[@id='initial-state']")[0]
     responses = json.loads(tag.text)["resourceResponses"]
 
-    result = {}
+    result = UserProfileResources()
 
     for item in responses:
 
-        result[item["name"]] = {
-            "status": item["response"]["status"],
-            "status_code": item["response"]["http_status"],
-            "data": item["response"]["data"],
-        }
+        if item["name"] == 'UserProfileBaseResource':
+            result.UserProfileBaseResource.status = item["response"]["status"]
+            result.UserProfileBaseResource.status_code = item["response"]["http_status"]
+            result.UserProfileBaseResource.data = item["response"]["data"]
+
+        if item["name"] == 'UserProfileBoardResource':
+            result.UserProfileBoardResource.status = item["response"]["status"]
+            result.UserProfileBoardResource.status_code = item["response"]["http_status"]
+            result.UserProfileBoardResource.data = item["response"]["data"]
 
         if response_has_errors(item):
-            result["error"] = response_error_message(item)
-
+            result.error = response_error_message(item)
     return result
 
 
@@ -150,68 +120,27 @@ def user_boards(username: str) -> List[Board]:
     :param username:
     :return:
     :raises UserBoardException
-          Pintereset Username
-
-    Returns
-    -------
-    list of boards
-        [
-          {
-            "id": number,   # Board id
-            "url": str,     # Board url e.g. username/board_name
-            "owner": str,   # username
-            "name": str     # board_name
-          },
-          {
-            ...
-          }
-        ]
-    Raises
-    ------
-    UserBoardException
-
     """
-    data: dict = get_page_data(username)
+    data = get_page_data(username)
 
-    if "error" in data:
-        raise UserBoardException(data["error"])
+    if data.error is not None:
+        raise UserBoardException(data.error)
 
-    result: dict = data["UserProfileBoardResource"]
-    result["data"]: list = user_profile_board_resource(result["data"])
+    result = data.UserProfileBoardResource
+    result.data = user_profile_board_resource(result.data)
 
-    if len(result["data"]) > 0:
-        return result["data"]
+    if len(result.data) > 0:
+        return result.data
 
     raise UserBoardException("User does not have any boards")
 
 
-def get_links(board: dict) -> list:
+def get_download_links(board: Board) -> List[DownloadableResource]:
     """
-    Retrieve downloadable links from a board
+    Get downloadable links for board resources
 
-    Parameters
-    ---------
-    board: dict
-        Pinterest board
-            {
-                "id": number,   # Board id
-                "url": str,     # Board url e.g. username/board_name
-                "owner": str,   # username
-                "name": str     # board_name
-            }
-
-
-    Returns
-    -------
-    list
-        [
-            {
-                "type": str,    # image | video
-                "id": str,      # numeric id
-                "url": str,     # url to image or video stream
-            }
-        ]
-
+    :param board: User board
+    :return: List of downloadable resources
     """
     s = session()
     bookmark = None
@@ -244,19 +173,21 @@ def get_links(board: dict) -> list:
     for res in resources:
         # Get original image url
         if ("images" in res) and (res["videos"] is None):
-            originals.append({
-                "type": "image",
-                "id": res["id"],
-                "url": res["images"]["orig"]["url"],
-            })
 
+            image = DownloadableResource()
+            image.type = DownloadableResourceType.image
+            image.id = res["id"]
+            image.url = res["images"]["orig"]["url"]
+
+            originals.append(image)
         # Get video download url
         if "videos" in res and (res["videos"] is not None):
-            originals.append({
-                "type": "video",
-                "id": res["id"],
-                "url": res["videos"]["video_list"]["V_HLSV4"]["url"],
-            })
+            video = DownloadableResource()
+            video.type = DownloadableResourceType.video
+            video.id = res["id"]
+            video.url = res["videos"]["video_list"]["V_HLSV4"]["url"]
+
+            originals.append(video)
 
     return originals
 
@@ -267,12 +198,10 @@ def fetch_image(url: str, save_path: str) -> None:
 
     Parameters
     ----------
-
     url: str
         File URL
     save_path:
         Save location
-
     """
     try:
         r = requests.get(url, stream=True)
@@ -289,12 +218,15 @@ def get_stream_urls(url: str) -> List:
     Requests that playlist and returns list of streams
     """
     r: Response = requests.get(url, stream=True)
-    best_quality: str
+    best_quality: str = ""
 
     line: bytes
     for line in r.iter_lines():
         decoded_url: str = line.decode("utf-8")
-        if (not decoded_url) or (not decoded_url.endswith("m3u8")): continue
+
+        if (not decoded_url) or (not decoded_url.endswith("m3u8")):
+            continue
+
         best_quality = decoded_url
 
     splitted_url: list = url.split("/")
@@ -302,11 +234,13 @@ def get_stream_urls(url: str) -> List:
     url: str = "/".join(splitted_url)
 
     streams: Response = requests.get(url, stream=True)
-    stream_urls: list = []
+    stream_urls: List = []
 
     for line in streams.iter_lines():
         decoded_url: str = line.decode("utf-8")
-        if (not decoded_url) or (not decoded_url.endswith("ts")): continue
+        if (not decoded_url) or (not decoded_url.endswith("ts")):
+            continue
+
         stream_url: list = url.split("/")
         stream_url[-1] = decoded_url
         stream_urls.append("/".join(stream_url))
@@ -351,11 +285,6 @@ def fetch_board(board_name: str,
     :param save_folder: Folder where to save
     :param force_download: Forces re-download of resource
     :return:
-    save_folder: str
-        Folder where to save
-
-    force: bool
-        Forces re-download of resource
     """
     if not links:
         raise ValueError("Links parameter cannot be empty")
@@ -368,9 +297,6 @@ def fetch_board(board_name: str,
 
     for el in Bar("Downloading").iter(links):
         ext = el["url"].split(".")[-1]
-        filename = "{}.{}".format(el["id"], ext)
-        save_path = os.path.join(save_folder, filename)
-        exists = os.path.exists(save_path)
 
         if not exists or force:
             # Download images
@@ -391,7 +317,8 @@ def session() -> Session:
     s = requests.Session()
     s.headers = {
         "Referer": PINTEREST_HOST,
-        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/81.0.4044.138 Safari/537.36",
+        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/81.0.4044.138 "
+                      "Safari/537.36",
     }
 
     return s
@@ -426,19 +353,19 @@ def make_dir(directory: str) -> None:
     Creates directory if not exists
     """
     try:
-        os.makedirs(dir)
-    except Exception:
+        os.makedirs(directory)
+    except OSError:
         pass
 
 
-def log(e: Exception, header: str = "", trace: bool = False) -> None:
+def log(e: Exception, header: str = None) -> None:
     """
     Logs exceptions to stdout
     """
-    if not header == "":
-        print("{} {}".format(header, str(e)))
+    if header:
+        print(f"{header} {str(e)}")
     else:
-        print("{}".format(str(e)))
+        print(f"{str(e)}")
 
     if traceback:
         print("Traceback:")
@@ -446,10 +373,6 @@ def log(e: Exception, header: str = "", trace: bool = False) -> None:
 
 
 def main() -> None:
-    pass
-
-
-def main():
     args_parser = argparse.ArgumentParser(description="Download Pinterest boards")
     args_parser.add_argument("-f", "--force", type=bool, default=False,
                              help="Forces redownlaod, overwrite existing files")
@@ -464,12 +387,13 @@ def main():
         boards = user_boards(args.path)
 
         for board in boards:
-            links = get_links(board)
-            save_folder = os.path.join(args.save_folder, board["owner"], board["name"])
-            fetch_boards(links, save_folder, args.force)
+            links = get_download_links(board)
+            save_folder_name = os.path.join(args.save_folder, board.owner, board.name)
+            fetch_board(board.name, links, save_folder_name, args.force)
 
     except Exception as e:
-        log(e=e, trace=True)
+        log(e)
+
 
 if __name__ == "__main__":
     main()
