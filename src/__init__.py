@@ -295,19 +295,29 @@ def fetch_board(board_name: str,
     if not isinstance(links, list):
         raise TypeError("Links has wrong type")
 
-    for el in Bar("Downloading").iter(links):
-        ext = el["url"].split(".")[-1]
+    print(f"Downloading {board_name}")
+    links_with_progress: List[DownloadableResource] = Bar("Progress").iter(links)
 
-        if not exists or force:
-            # Download images
-            if el["type"] == "image":
+    for resource in links_with_progress:
+        # Download images
+        if resource.type == DownloadableResourceType.image:
+            ext = resource.url.split(".")[-1]
+            filename = f"{resource.id}.{ext}"
+            save_path = os.path.join(save_folder, filename)
+            path_exists = os.path.exists(save_path)
+            if not path_exists or force_download:
                 make_dir(save_folder)
-                fetch_image(el["url"], save_path)
-            # Download video
-            if el["type"] == "video":
-                save_path = os.path.join(save_folder, "{}.{}".format(el["id"], "ts"))
+                fetch_image(resource.url, save_path)
+
+        # Download video
+        if resource.type == DownloadableResourceType.video:
+            filename = f"{resource.id}.ts"
+            save_path = os.path.join(save_folder, filename)
+            path_exists = os.path.exists(save_path)
+
+            if not path_exists or force_download:
                 make_dir(save_folder)
-                fetch_video(el["url"], save_path)
+                fetch_video(resource.url, save_path)
 
 
 def session() -> Session:
