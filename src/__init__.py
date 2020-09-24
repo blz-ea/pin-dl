@@ -6,14 +6,17 @@ import traceback
 import argparse
 import requests
 import lxml.html as html
+from enum import Enum
 from progress.bar import Bar
+from typing import List, Union, Any, NewType
 
 PINTEREST_HOST = "https://pinterest.com"
 Response = requests.models.Response
+Session = requests.Session
 
 
-def user_profile_board_resource(data_items: list) -> list:
-    """
+class UserBoardException(Exception):
+    pass
     Accepts board resource (UserProfileBoardResource) and returns restructured dict for easy manipulation
 
     Parameters
@@ -21,17 +24,56 @@ def user_profile_board_resource(data_items: list) -> list:
     data_items: list
        UserProfileBoardResource - list of user boards
 
-    Returns
-    ------
-    [
-          {
-            "id": number,   # Board id
+class Board:
+    id: str  # Board id
+    url: str  # Board url e.g. username/board_name
+    owner: str  # username
+    name: str  # board_name
             "url": str,     # Board url e.g. username/board_name
             "owner": str,   # username
             "name": str     # board_name
           },
     ]
 
+    def __init__(self, board_id: str = None, url: str = None, owner: str = None, name: str = None):
+        self.id = board_id
+        self.url = url
+        self.owner = owner
+        self.name = name
+
+
+class DownloadableResourceType(Enum):
+    image = 'image'
+    video = 'video'
+
+
+class DownloadableResource:
+    type: NewType('DownloadableResourceType', DownloadableResourceType)
+    id: str
+    url: str  # url to image or video stream
+
+
+class UserProfileBaseResource:
+    status: str
+    status_code: int
+    data: Union[List[Any], None]
+
+
+class UserProfileBoardResource(UserProfileBaseResource):
+    pass
+
+
+class UserProfileResources:
+    UserProfileBaseResource: 'UserProfileBaseResource' = UserProfileBaseResource()
+    UserProfileBoardResource: 'UserProfileBoardResource' = UserProfileBoardResource()
+    error: str = None
+
+
+def user_profile_board_resource(data_items: List[Any]) -> List[Board]:
+    """
+    Accepts board resource (UserProfileBoardResource) and returns restructured list of Boards for easy manipulation
+    :param data_items:  List of user boards
+    :return: List of user Boards
     """
     if not isinstance(data_items, list):
         raise ValueError("Wrong object provided")
@@ -49,12 +91,12 @@ def user_profile_board_resource(data_items: list) -> list:
     return result
 
 
-def get_page_data(path: str) -> dict:
+def get_page_data(path: str) -> 'UserProfileResources':
     """
-    Request path and return structured data
+     Requests pinterest page and returns structured data
 
-    Parameters
-    ----------
+    :param path: Pinterest path e.g. username or username/board_name
+    :return:
     path: str
         Pinterest path e.g. username or username/board_name
 
@@ -101,13 +143,13 @@ def get_page_data(path: str) -> dict:
     return result
 
 
-def user_boards(username: str) -> dict:
+def user_boards(username: str) -> List[Board]:
     """
-    Gets list of boards
+    Retrieves list of boards
 
-    Parameters
-    ---------
-    username: str
+    :param username:
+    :return:
+    :raises UserBoardException
           Pintereset Username
 
     Returns
@@ -177,7 +219,7 @@ def get_links(board: dict) -> list:
 
     while bookmark != '-end-':
         options = {
-            "board_id": board["id"],
+            "board_id": board.id,
             "page_size": 25,
         }
 
@@ -187,7 +229,7 @@ def get_links(board: dict) -> list:
             })
 
         r = s.get("{}/resource/BoardFeedResource/get/".format(PINTEREST_HOST), params={
-            "source_url": board["url"],
+            "source_url": board.url,
             "data": json.dumps({
                 "options": options,
                 "context": {},
@@ -198,7 +240,7 @@ def get_links(board: dict) -> list:
         resources += data["resource_response"]["data"]
         bookmark = data["resource"]["options"]["bookmarks"][0]
 
-    originals = []
+    originals: List[DownloadableResource] = []
     for res in resources:
         # Get original image url
         if ("images" in res) and (res["videos"] is None):
@@ -221,7 +263,7 @@ def get_links(board: dict) -> list:
 
 def fetch_image(url: str, save_path: str) -> None:
     """
-    Download image resource
+    Downloads image resource
 
     Parameters
     ----------
@@ -241,7 +283,7 @@ def fetch_image(url: str, save_path: str) -> None:
         log(e, "[Download Image Exception]")
 
 
-def get_stream_urls(url: str) -> dict:
+def get_stream_urls(url: str) -> List:
     """
     Picks a stream with best resolution from provided url
     Requests that playlist and returns list of streams
@@ -272,7 +314,7 @@ def get_stream_urls(url: str) -> dict:
     return stream_urls
 
 
-def fetch_video(playlist_url: str, save_path: str):
+def fetch_video(playlist_url: str, save_path: str) -> None:
     """
     Downloads video resource
     Downloads playlist containing resources available for stream, downloads and combines streams together
@@ -297,15 +339,18 @@ def fetch_video(playlist_url: str, save_path: str):
         log(e, "[Download Video Exception]")
 
 
-def fetch_boards(links: dict, save_folder: str, force: bool=False) -> None:
+def fetch_board(board_name: str,
+                links: List[DownloadableResource],
+                save_folder: str,
+                force_download: bool = False) -> None:
     """
     Downloads Pinterest board resources
 
-    Parameters
-    ----------
-    links: dict
-        Pinterest board
-
+    :param board_name: Pinterest board name
+    :param links: Pinterest board
+    :param save_folder: Folder where to save
+    :param force_download: Forces re-download of resource
+    :return:
     save_folder: str
         Folder where to save
 
@@ -339,7 +384,7 @@ def fetch_boards(links: dict, save_folder: str, force: bool=False) -> None:
                 fetch_video(el["url"], save_path)
 
 
-def session():
+def session() -> Session:
     """
     Returns request session with pre-defined headers
     """
@@ -376,7 +421,7 @@ def response_error_message(response_item):
     return json_error["message"]
 
 
-def make_dir(dir: str) -> None:
+def make_dir(directory: str) -> None:
     """
     Creates directory if not exists
     """
@@ -400,7 +445,7 @@ def log(e: Exception, header: str = "", trace: bool = False) -> None:
         print("".join(traceback.format_tb(e.__traceback__)))
 
 
-class UserBoardException(Exception):
+def main() -> None:
     pass
 
 
