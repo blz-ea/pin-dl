@@ -11,7 +11,7 @@ setup(
             ['pin-dl = src:main']
     },
     install_requires=[
-        "lxml==4.3.1",
+        "lxml==4.6.5",
         "requests==2.21",
         "progress==1.5",
     ]
