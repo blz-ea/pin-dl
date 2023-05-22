@@ -12,7 +12,7 @@ setup(
     },
     install_requires=[
         "lxml==4.3.1",
-        "requests==2.21",
+        "requests==2.31.0",
         "progress==1.5",
     ]
 )
